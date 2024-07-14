@@ -1,37 +1,3 @@
-/*!
-@file   iso15765_2.c
-@brief  Source file of the ISO15765-2 library
-@t.odo	-
----------------------------------------------------------------------------
-
-MIT License
-Copyright (c) 2020 Io. D (Devcoons.com)
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-*/
-/******************************************************************************
-* Preprocessor Definitions & Macros
-******************************************************************************/
-
-/******************************************************************************
-* Includes
-******************************************************************************/
 
 #include "lib_iso15765.h"
 
@@ -44,6 +10,15 @@ static n_indn_t sgn_indn;
 static n_ff_indn_t sgn_ff_indn;
 static n_cfm_t sgn_conf;
 static n_chg_param_cfm_t sgn_chg_cfm;
+
+extern n_rslt n_pci_pack(addr_md mode, n_pdu_t* n_pdu, const uint8_t* dt);
+extern n_rslt n_pci_unpack(addr_md mode, n_pdu_t* n_pdu, uint8_t dlc, uint8_t* dt);
+extern uint8_t n_get_dt_offset(addr_md address, pci_type pci, uint16_t data_size);
+
+extern n_rslt n_pdu_pack_dt(addr_md mode, n_pdu_t* n_pdu, uint8_t* dt);
+extern n_rslt n_pdu_unpack_dt(addr_md mode, n_pdu_t* n_pdu, uint8_t* dt);
+extern uint8_t n_get_closest_can_dl(uint8_t size, cbus_fr_format tmt);
+extern pci_type n_out_frame_type(iso15765_t* instance);
 
 /******************************************************************************
 * Declaration | Static Functions
@@ -78,296 +53,8 @@ static void cfg_cfm(n_chg_param_cfm_t* info)
 }
 
 /*
- * Helper function to find the closest can_dl
- */
-inline static uint8_t n_get_closest_can_dl(uint8_t size, cbus_fr_format tmt)
-{
-	uint8_t rval = 0;
-
-	if (tmt == CBUS_FR_FRM_STD)
-	{
-		rval = (size <= 0x08U) ? size : 0x08U;
-	}
-	else
-	{
-		if (size <= 8)
-		{
-			rval = size;
-		}
-		else if (size <= 12)
-		{
-			rval = 12;
-		}
-		else if (size <= 16)
-		{
-			rval = 16;
-		}
-		else if (size <= 20)
-		{
-			rval = 20;
-		}
-		else if (size <= 24)
-		{
-			rval = 24;
-		}
-		else if (size <= 32)
-		{
-			rval = 32;
-		}
-		else if (size <= 48)
-		{
-			rval = 48;
-		}
-		else
-		{
-			rval = 64;
-		}
-	}
-
-	return rval;
-}
-
-/*
- * Helper function to find the closest can_dl
- */
-inline static uint8_t n_get_dt_offset(addr_md address, pci_type pci, uint16_t data_size)
-{
-	uint8_t offset = (address & 0x01);
-
-	switch (pci)
-	{
-	case N_PCI_T_SF:
-		offset += 1;
-		offset += data_size <= (8 - offset) ? 0 : 1;
-		break;
-	case N_PCI_T_FF:
-		offset += 2;
-		offset += data_size > 4095 ? 4 : 0;
-		break;
-	case N_PCI_T_CF:
-		offset += 1;
-		break;
-	case N_PCI_T_FC:
-		offset += 3;
-		break;
-	default:
-		offset = 0;
-		break;
-	}
-	return offset;
-}
-
-/*
- * Helper function to find which PCI_Type the outbound stream has to use
- */
-inline static pci_type n_out_frame_type(iso15765_t* instance)
-{
-	pci_type result = N_PCI_T_CF;
-
-	if (instance->out.cf_cnt == 0)
-	{
-		if ((instance->addr_md & 0x01) == 1)
-		{
-			if (instance->out.fr_fmt == CBUS_FR_FRM_STD)
-			{
-				result = instance->out.msg_sz <= 6 ? N_PCI_T_SF : N_PCI_T_FF;
-			}
-			else
-			{
-				result = instance->out.msg_sz <= 61 ? N_PCI_T_SF : N_PCI_T_FF;
-			}
-		}
-		else
-		{
-			if (instance->out.fr_fmt == CBUS_FR_FRM_STD)
-			{
-				result = instance->out.msg_sz <= 7 ? N_PCI_T_SF : N_PCI_T_FF;
-			}
-			else
-			{
-				result = instance->out.msg_sz <= 62 ? N_PCI_T_SF : N_PCI_T_FF;
-			}
-		}
-	}
-	return result;
-}
-
-/*
- * Convert partially the CANBus Frame from the PCI
- */
-inline static n_rslt n_pci_pack(addr_md mode, n_pdu_t* n_pdu, const uint8_t* dt)
-{
-	n_rslt result = N_ERROR;
-
-	if (n_pdu != NULL && dt != NULL)
-	{
-		uint8_t offs = (mode & 0x01);
-
-		switch (n_pdu->n_pci.pt)
-		{
-		case N_PCI_T_SF:
-			if (n_pdu->n_pci.dl <= (uint16_t)(7 - offs))
-			{
-				n_pdu->dt[0 + offs] = (n_pdu->n_pci.pt) << 4
-					| (uint8_t)(n_pdu->n_pci.dl & 0x0F);
-			}
-			else
-			{
-				n_pdu->dt[0 + offs] = 0 + ((n_pdu->n_pci.pt) << 4);
-				n_pdu->dt[1 + offs] = (uint8_t)n_pdu->n_pci.dl;
-			}
-			result = N_OK;
-			break;
-		case N_PCI_T_CF:
-			n_pdu->dt[0 + offs] = (n_pdu->n_pci.pt) << 4
-				| n_pdu->n_pci.sn;
-			result = N_OK;
-			break;
-		case N_PCI_T_FF:
-			n_pdu->dt[0 + offs] = (n_pdu->n_pci.pt) << 4
-				| (n_pdu->n_pci.dl & 0x0F00) >> 8;
-			n_pdu->dt[1 + offs] = n_pdu->n_pci.dl & 0x00FF;
-			result = N_OK;
-			break;
-		case N_PCI_T_FC:
-			n_pdu->dt[0 + offs] = (n_pdu->n_pci.pt) << 4
-				| n_pdu->n_pci.fs;
-			n_pdu->dt[1 + offs] = n_pdu->n_pci.bs;
-			n_pdu->dt[2 + offs] = n_pdu->n_pci.st;
-			result = N_OK;
-			break;
-		default:
-			result = N_ERROR;
-			break;
-		}
-	}
-	return result;
-}
-
-/*
- * Convert the PCI from the CANBus Frame
- */
-inline static n_rslt n_pci_unpack(addr_md mode, n_pdu_t* n_pdu, uint8_t dlc, uint8_t* dt)
-{
-    n_rslt result = N_ERROR;
-
-    if ((n_pdu != NULL) && (dt != NULL))
-    {
-        uint8_t offs = (uint8_t)(mode & 0x01U); // Make use and purpose of 'offs' explicit
-
-        // Document the operation's intent clearly to avoid being seen as 'dead code'
-        n_pdu->n_pci.pt = (uint8_t)((dt[offs] & 0xF0U) >> 4U);
-
-        switch (n_pdu->n_pci.pt)
-        {
-            case N_PCI_T_SF:
-                // Conditional operation based on 'dlc', not dead code
-                n_pdu->n_pci.dl = (dlc <= 8U) ? (uint8_t)(dt[offs] & 0x0FU) : dt[1U + offs];
-                result = N_OK;
-                break;
-
-            case N_PCI_T_CF:
-                // Direct assignment, the operation depends on 'dt' content
-                n_pdu->n_pci.sn = (uint8_t)(dt[offs] & 0x0FU);
-                n_pdu->sz = dlc - (1U + offs);
-                result = N_OK;
-                break;
-
-            case N_PCI_T_FF:
-                // Combine two bytes into a larger value, clearly intentional
-                n_pdu->n_pci.dl = ((uint16_t)(dt[offs] & 0x0FU) << 8U) | dt[1U + offs];
-                n_pdu->sz = dlc - (2U + offs);
-                result = N_OK;
-                break;
-
-            case N_PCI_T_FC:
-                // Sequential assignments based on protocol, clearly used
-                n_pdu->n_pci.fs = (uint8_t)(dt[offs] & 0x0FU);
-                n_pdu->n_pci.bs = dt[1U + offs];
-                n_pdu->n_pci.st = dt[2U + offs];
-                n_pdu->sz = dlc - (3U + offs); // Adjust for correct data length calculation
-                result = N_OK;
-                break;
-
-            default:
-                result = N_ERROR;
-                break;
-        }
-    }
-
-    return result;
-}
-
-/*
- * Helper function of 'n_pdu_pack' to use the frame payload.
- */
-inline static n_rslt n_pdu_pack_dt(addr_md mode, n_pdu_t* n_pdu, uint8_t* dt)
-{
-	n_rslt result = N_ERROR;
-
-	if (dt != NULL)
-	{
-		switch (n_pdu->n_pci.pt)
-		{
-		case N_PCI_T_SF:
-			memmove(&n_pdu->dt[n_get_dt_offset(mode, N_PCI_T_SF, n_pdu->sz)], dt, n_pdu->sz);
-			break;
-		case N_PCI_T_FF:
-			memmove(&n_pdu->dt[n_get_dt_offset(mode, N_PCI_T_FF, n_pdu->sz)], dt, n_pdu->sz);
-			break;
-		case N_PCI_T_CF:
-			memmove(&n_pdu->dt[n_get_dt_offset(mode, N_PCI_T_CF, n_pdu->sz)], dt, n_pdu->sz);
-			break;
-		case N_PCI_T_FC:
-			memmove(&n_pdu->dt[n_get_dt_offset(mode, N_PCI_T_FC, n_pdu->sz)], dt, n_pdu->sz);
-
-			break;
-
-		default:
-			break;
-		}
-		result = N_OK;
-	}
-	return result;
-}
-
-/*
- * Helper function of 'n_pdu_unpack' to use the frame payload.
- */
-inline static n_rslt n_pdu_unpack_dt(addr_md mode, n_pdu_t* n_pdu, uint8_t* dt)
-{
-	n_rslt result = N_ERROR;
-
-	if ((n_pdu != NULL) && (dt != NULL))
-	{
-		switch (n_pdu->n_pci.pt)
-		{
-		case N_PCI_T_SF:
-			memmove(n_pdu->dt, &dt[n_get_dt_offset(mode, N_PCI_T_SF, n_pdu->n_pci.dl)], n_pdu->n_pci.dl);
-			result = N_OK;
-			break;
-		case N_PCI_T_FF:
-			memmove(n_pdu->dt, &dt[n_get_dt_offset(mode, N_PCI_T_FF, n_pdu->sz)], n_pdu->sz);
-			result = N_OK;
-			break;
-		case N_PCI_T_CF:
-			memmove(n_pdu->dt, &dt[n_get_dt_offset(mode, N_PCI_T_CF, n_pdu->sz)], n_pdu->sz);
-			result = N_OK;
-			break;
-		case N_PCI_T_FC:
-			memmove(n_pdu->dt, &dt[n_get_dt_offset(mode, N_PCI_T_FC, n_pdu->sz)], n_pdu->sz);
-			result = N_OK;
-			break;
-		default:
-			result = N_ERROR;
-			break;
-		}
-	}
-	return result;
-}
-
-/*
  * Convert CANBus frame from PDU
+ * PDU => can frame(bytes)
  */
 inline static n_rslt n_pdu_pack(addr_md mode, n_pdu_t* n_pdu, uint32_t* id, uint8_t* dt)
 {
@@ -383,14 +70,14 @@ inline static n_rslt n_pdu_pack(addr_md mode, n_pdu_t* n_pdu, uint32_t* id, uint
             /* Fall through intentionally to N_ADM_NORMAL */
             /* Falls through */
         case N_ADM_NORMAL:
-            *id = 0x80U
-                | (n_pdu->n_ai.n_pr << 8)
-                | (n_pdu->n_ai.n_ta << 3)
-                | n_pdu->n_ai.n_sa
-                | ((n_pdu->n_ai.n_tt == N_TA_T_PHY) ? 0x40U : 0x00U);
+            *id = 0x80U // 第4个字节最高位置1：
+                | (n_pdu->n_ai.n_pr << 8) // 第3个字节设置为 Network Address Priority
+                | (n_pdu->n_ai.n_ta << 3) // 第4个字节高5位 置为ta
+                | n_pdu->n_ai.n_sa // 第4个字节 置为sa
+                | ((n_pdu->n_ai.n_tt == N_TA_T_PHY) ? 0x40U : 0x00U);// 第4个字节 高第二位， 置为1(物理寻址)
             break;
         case N_ADM_MIXED29:
-            *id = (n_pdu->n_ai.n_pr << 26) 
+            *id = (n_pdu->n_ai.n_pr << 26)
                 | ((n_pdu->n_ai.n_tt == N_TA_T_PHY) ? 0xCEU : 0xCDU) << 16
                 | (n_pdu->n_ai.n_ta << 8)
                 | n_pdu->n_ai.n_sa;
@@ -414,12 +101,13 @@ inline static n_rslt n_pdu_pack(addr_md mode, n_pdu_t* n_pdu, uint32_t* id, uint
             return N_ERROR;
     }
 
-    n_pci_pack(mode, n_pdu, dt);
-    return n_pdu_pack_dt(mode, n_pdu, dt);
+    n_pci_pack(mode, n_pdu, dt); // 填充PCI
+    return n_pdu_pack_dt(mode, n_pdu, dt); // 填充data
 }
 
 /*
  * Convert PDU from CANBus frame
+ * can frame(bytes) => PDU
  */
 inline static n_rslt n_pdu_unpack(addr_md mode, n_pdu_t* n_pdu, uint32_t id, uint8_t dlc, uint8_t* dt)
 {
@@ -448,7 +136,7 @@ inline static n_rslt n_pdu_unpack(addr_md mode, n_pdu_t* n_pdu, uint32_t id, uin
 	case N_ADM_FIXED:
 		n_pdu->n_ai.n_pr = (uint8_t)((id & 0x1C000000) >> 26);
 		n_pdu->n_ai.n_tt = (uint8_t)(((id & 0x00FF0000) >> 16) == 0xDA ? N_TA_T_PHY : N_TA_T_FUNC);
-		n_pdu->n_ai.n_ta = (uint8_t)((id & 0x0000FF00) >> 8);
+		n_pdu->n_ai.n_ta = (uint8_t)((id & 0x0000FF00) >> 8); // 只用1个字节来表达 ta ?
 		n_pdu->n_ai.n_sa = (uint8_t)((id & 0x000000FF) >> 0);
 		break;
 	case N_ADM_EXTENDED:
@@ -462,8 +150,8 @@ inline static n_rslt n_pdu_unpack(addr_md mode, n_pdu_t* n_pdu, uint32_t id, uin
 		return N_UNE_PDU;
 	}
 
-	n_pci_unpack(mode, n_pdu, dlc, dt);
-	n_pdu_unpack_dt(mode, n_pdu, dt);
+	n_pci_unpack(mode, n_pdu, dlc, dt); // 解析PCI的值，SF_DL,FF_DL, FS,BS,STmin
+	n_pdu_unpack_dt(mode, n_pdu, dt); // copy数据到 n_pdu 结构体中
 
 	return N_OK;
 }
@@ -515,13 +203,16 @@ inline static void signaling(signal_tp tp, n_iostream_t* strm, void(*cb)(void*),
  */
 inline static n_rslt process_timeouts(iso15765_t* ih)
 {
-	if (ih->out.sts != N_S_TX_WAIT_FC || ih->out.last_upd.n_bs == 0 || ih->config.n_bs == 0
-		|| (ih->out.last_upd.n_bs + ih->config.n_bs) >= ih->clbs.get_ms())
-	{
-		return N_OK;
-	}
+  if (ih->out.sts != N_S_TX_WAIT_FC || // 不是等FC
+      ih->out.last_upd.n_bs == 0 ||    // ？？时间等于0
+      ih->config.n_bs == 0 ||          // 时间参数Bs
+      (ih->out.last_upd.n_bs + ih->config.n_bs) >=
+          ih->clbs.get_ms()) // 时间到达
+  {
+    return N_OK;
+  }
 
-	/* if timeout occures then reset the counters and report to the upper layer */
+  /* if timeout occures then reset the counters and report to the upper layer */
 	ih->out.cf_cnt = 0x0;
 	signaling(N_INDN, &ih->out, (void*)ih->clbs.indn, ih->out.msg_sz, N_TIMEOUT_Bs);
 	ih->clbs.on_error(N_TIMEOUT_Bs);
@@ -530,6 +221,7 @@ inline static n_rslt process_timeouts(iso15765_t* ih)
 
 /*
  * Sends a Flow Control Frame upon request from the reception procedure
+ * 根据IN 数据 打包一帧 FC 发出
  */
 static n_rslt send_N_PCI_T_FC(iso15765_t* ih)
 {
@@ -537,6 +229,7 @@ static n_rslt send_N_PCI_T_FC(iso15765_t* ih)
 
 	ih->out.sts |= N_S_TX_BUSY;
 	ih->fl_pdu.n_pci.pt = N_PCI_T_FC;
+        // ? 这个没有赋值 n_pci.fs
 	ih->fl_pdu.n_pci.bs = ih->config.bs;
 	ih->fl_pdu.n_pci.st = ih->config.stmin;
 	ih->fl_pdu.n_ai.n_ae = ih->in.pdu.n_ai.n_ae;
@@ -606,9 +299,9 @@ static n_rslt process_in_ff(iso15765_t* ih, canbus_frame_t* frame)
 	memmove(ih->in.msg, ih->in.pdu.dt, ih->in.pdu.sz);
 	ih->in.msg_sz = ih->in.pdu.n_pci.dl;
 	ih->in.msg_pos = ih->in.pdu.sz;
-	ih->in.cf_cnt = 0;
+	ih->in.cf_cnt = 0; // 当前是第0帧
 	ih->in.wf_cnt = 0;
-	signaling(N_FF_INDN, &ih->in, (void*)ih->clbs.ff_indn, ih->in.msg_sz, N_OK);
+	signaling(N_FF_INDN, &ih->in, (void*)ih->clbs.ff_indn, ih->in.msg_sz, N_OK); // 通知上层收到FF
 	send_N_PCI_T_FC(ih);
 	return N_OK;
 }
@@ -629,7 +322,7 @@ static n_rslt process_in_sf(iso15765_t* ih, canbus_frame_t* frame)
 	}
 	memmove(&ih->in.msg[0], ih->in.pdu.dt, ih->in.pdu.n_pci.dl);
 	ih->in.sts = N_S_IDLE;
-	signaling(N_INDN, &ih->in, (void*)ih->clbs.indn, ih->in.pdu.n_pci.dl, N_OK);
+	signaling(N_INDN, &ih->in, (void*)ih->clbs.indn, ih->in.pdu.n_pci.dl, N_OK); // 把收到的消息，抛给上层
 	return N_OK;
 }
 
@@ -714,7 +407,7 @@ static n_rslt process_in_fc(iso15765_t* ih, canbus_frame_t* frame)
 		ih->out.wf_cnt += 1;
 		if (check_max_wf_capacity(ih) != N_WFT_OVRN)
 		{
-			return N_OK;			
+			return N_OK;
 		}
 		ih->out.last_upd.n_bs = ih->clbs.get_ms();
 		rslt = N_WFT_OVRN;
@@ -798,15 +491,17 @@ static n_rslt iso15765_process_out(iso15765_t* ih)
 	{
 	case N_PCI_T_SF:
 		/* Copy all the data of the SF to the outbound stream, pack and send the canbus frame */
-		ih->out.pdu.n_pci.dl = ih->out.msg_sz;
+		ih->out.pdu.n_pci.dl = ih->out.msg_sz; // SF: PDU 和 PCI 的size相等
 		ih->out.pdu.sz = ih->out.msg_sz;
 
-		if (n_pdu_pack(ih->addr_md, &ih->out.pdu, &id, ih->out.msg) != N_OK)
+		if (n_pdu_pack(ih->addr_md, &ih->out.pdu, &id, ih->out.msg) != N_OK) // SF: pdu.dt == out.msg
 		{
 			goto iso15765_process_out_cfm;
 		}
-			
-		rslt = ih->clbs.send_frame(ih->fr_id_type, id, ih->out.fr_fmt, n_get_closest_can_dl(ih->out.pdu.sz + n_get_dt_offset(ih->addr_md, N_PCI_T_SF, ih->out.pdu.sz), ih->out.fr_fmt), ih->out.pdu.dt) == 0 ? N_OK : N_ERROR;
+                // n_get_closest_can_dl 第3个参数，为什么是CAN_DL 而不是DLC ？
+		rslt = ih->clbs.send_frame(ih->fr_id_type, id, ih->out.fr_fmt,
+                                           n_get_closest_can_dl(ih->out.pdu.sz + n_get_dt_offset(ih->addr_md, N_PCI_T_SF, ih->out.pdu.sz),
+                                                                ih->out.fr_fmt), ih->out.pdu.dt) == 0 ? N_OK : N_ERROR;
 		goto iso15765_process_out_cfm;
 		break;
 
@@ -836,7 +531,7 @@ static n_rslt iso15765_process_out(iso15765_t* ih)
 		{
 			return N_OK;
 		}
-			
+
 		/* Increase the sequence number of the frame and the CF counter of the stream
 		* and then pack the PDU to a CANBus frame */
 		ih->out.pdu.n_pci.sn = ih->out.cf_cnt & 0x0F;
@@ -858,7 +553,7 @@ static n_rslt iso15765_process_out(iso15765_t* ih)
 		{
 			goto iso15765_process_out_cfm;
 		}
-			
+
 		/* Increase the position which indicates the remaining data in the inbound buffer */
 		ih->out.msg_pos += ih->out.pdu.sz;
 
@@ -886,7 +581,7 @@ static n_rslt iso15765_process_out(iso15765_t* ih)
 	return N_ERROR;
 
 iso15765_process_out_cfm:
-	ih->out.sts = N_S_IDLE;
+	ih->out.sts = N_S_IDLE; // 发送成功，重置状态
 	ih->out.cf_cnt = 0;
 	ih->out.wf_cnt = 0;
 	signaling(N_CONF, &ih->out, (void*)ih->clbs.cfm, 0, rslt);

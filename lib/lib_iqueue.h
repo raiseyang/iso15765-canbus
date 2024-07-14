@@ -101,7 +101,7 @@ iqueue_t;
 
 i_status iqueue_init(iqueue_t* _queue, uint32_t _max_elements, size_t _element_size, void* _storage);
 i_status iqueue_enqueue(iqueue_t* _queue, void* _element);
-i_status iqueue_dequeue(iqueue_t* _queue, void* _element);
+i_status iqueue_dequeue(iqueue_t *_queue, void *_element);
 i_status iqueue_size(iqueue_t* _queue, size_t* _size);
 i_status iqueue_advance_next(iqueue_t* _queue);
 void* iqueue_get_next_enqueue(iqueue_t* _queue);

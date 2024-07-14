@@ -1,12 +1,24 @@
 //#define ISO16765Example
 #ifdef ISO16765Example
 
+#include "lib_iso15765.h"
 #include <stdio.h>
 #include <stdlib.h>
-#include "lib_iso15765.h"
-#include <windows.h>
-#include <sysinfoapi.h>
-#include <conio.h>
+#include <unistd.h>
+#include "sys/time.h"
+//#include <windows.h>
+//#include <sysinfoapi.h>
+//#include <conio.h>
+
+void Sleep(int millseconds){
+  usleep(1000*millseconds);
+}
+
+uint32_t GetTickCount() {
+  struct timeval tv;
+  gettimeofday(&tv, NULL);
+  return (long long)tv.tv_sec * 1000LL + (long long)tv.tv_usec / 1000LL;
+}
 
 /******************************************************************************
 * Declaration | Static Functions
@@ -78,12 +90,12 @@ n_req_t frame2 =
 /******************************************************************************
 * Definition  | Static Functions
 ******************************************************************************/
-uint16_t f_sz1 = 1;
-uint16_t f_sz2 = 1;
+uint16_t f_sz1 = 8;
+uint16_t f_sz2 = 8;
 
 static void rand_string(char* str, size_t size)
 {
-        const char charset[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJK";
+        const char charset[] = "abcdefghijklmnopqrstuvwxyz";
 
         for (size_t n = 0; n < size; n++) 
         {
@@ -214,7 +226,20 @@ static void indn2(n_indn_t* info)
 
 int main()
 {
-        
+       //
+       // static iso15765_t handler1 =
+       //{
+       //        .addr_md = N_ADM_FIXED,
+       //        .fr_id_type = CBUS_ID_T_EXTENDED,
+       //        .clbs.send_frame = send_frame1,
+       //        .clbs.on_error = on_error,
+       //        .clbs.get_ms = getms,
+       //        .clbs.indn = indn1,
+       //        .config.stmin = 0x3,
+       //        .config.bs = 0x0f,
+       //        .config.n_bs = 100,
+       //        .config.n_cr = 3
+       //};
         iso15765_init(&handler1);
         iso15765_init(&handler2);
 

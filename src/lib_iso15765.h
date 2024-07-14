@@ -71,7 +71,7 @@ typedef enum
 {
 	CBUS_FR_FRM_STD = 0x01,		/* Standard CANBUS */
 	CBUS_FR_FRM_FD  = 0x02		/* FD CANBUS       */
-}cbus_fr_format;
+}cbus_fr_format; // 标准CAN, CAN FD（FDF bit标记）
 #endif
 
 /* --- CANBus Mode [ID Type] (ref: iso15765-2 p.8) -------==---------------- */
@@ -82,7 +82,7 @@ typedef enum
 {
 	CBUS_ID_T_STANDARD = 0x04U,	/* 11bits CAN Identifier */
 	CBUS_ID_T_EXTENDED = 0x08U	/* 29bits CAN Identifier */
-}cbus_id_type;
+}cbus_id_type; // CAN ID 类型， 11位ID（标准id类型）， 29位ID（扩展ID类型）
 #endif
 
 /* --- CANBus Frame (ref: iso15765-2 p.) ----------------------------------- */
@@ -91,12 +91,12 @@ typedef enum
 #define CANBUS_FRAME
 typedef struct
 {
-	uint32_t id;		/* CAN Frame Id */
-	uint32_t id_type;	/* CAN Frame Id Type `cbus_id_type` */
-	uint16_t fr_format;	/* CAN Frame Format `cbus_fr_format` */
+	uint32_t id;		/* CAN Frame Id （那11个 或 29个 bits）标记 ；  1.网络优先级 2.物理寻址还是功能寻址 3.ta, 3.sa*/
+	uint32_t id_type;	/* CAN Frame Id Type `cbus_id_type` 11->标准ID， 22->扩展ID */
+	uint16_t fr_format;	/* CAN Frame Format `cbus_fr_format` CAN标准  还是 CAN FD */
 	uint16_t dlc;		/* Size of data */
-	uint8_t dt[64];		/* Actual data of the frame */
-}canbus_frame_t;
+	uint8_t dt[64];		/* Actual data of the frame [CAN fd 最大支持64字节]*/
+}canbus_frame_t; // canbus 帧的结构体
 #endif
 
 /* --- CANTP Addressing Mode (ref: iso15765-2 p.28) ------------------------ */
@@ -259,7 +259,7 @@ typedef struct ALIGNMENT
 	uint8_t sn;	/* SequenceNumber: specify the order of the consecutive frames */
 	uint8_t st;	/* SeparationTime: Requested separation time */
 	pci_type pt;	/* Type of the received pdu 'pci_type' */
-	uint16_t dl;	/* PCI data length (if 0 frame must be ignored) */
+	uint16_t dl;	/* PCI data length (if 0 frame must be ignored) 一个uds请求大小， 总大小 */
 }n_pci_t;
 
 /* --- Protocol dt unit (ref: iso15765-2 p.) ------------------------------- */
@@ -267,7 +267,7 @@ typedef struct ALIGNMENT
 typedef struct ALIGNMENT
 {
 	mtype n_mt;	/* Message Type */
-	uint16_t sz;	/* Actual data size */
+	uint16_t sz;	/* Actual data size 每次发送大小 CAN:1~7 */
 	n_ai_t n_ai;	/* Address information */
 	n_pci_t n_pci;	/* Protocol control information */
 	uint8_t dt[64];	/* Data Field */
@@ -377,7 +377,7 @@ typedef struct ALIGNMENT
 
 typedef struct ALIGNMENT
 {
-	cbus_fr_format fr_fmt;		/* CANBus Frame format */
+	cbus_fr_format fr_fmt;		/* CANBus Frame format classical can 还是 CAN FD*/
 	n_pdu_t pdu;			/* Keep information about the in/out frame in a PDU format */
 	uint8_t cf_cnt;			/* Current block sequence number (ConsecutiveFrame) */
 	uint8_t wf_cnt;			/* Current received wait flow control frames */
@@ -385,8 +385,8 @@ typedef struct ALIGNMENT
 	uint8_t stmin;			/* Frames transmission rate */
 	uint8_t cfg_bs;			/* Max. supported block sequence (ConsecutiveFrame) */
 	stream_sts sts;			/* Stream status */
-	uint16_t msg_sz;		/* Actual message buffer size */
-	uint16_t msg_pos;		/* Transmit message buffer position */
+	uint16_t msg_sz;		/* Actual message buffer size 一个 user data 大小*/
+	uint16_t msg_pos;		/* Transmit message buffer position 没收到一帧都增加， 直到达到 msg_sz*/
 	n_timeouts last_upd;		/* Time keeper for timouts */
 	uint8_t msg[I15765_MSG_SIZE];	/* Received/Transmit message buffer */
 }n_iostream_t;
